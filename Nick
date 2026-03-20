@@ -1,67 +1,39 @@
 --[[
-    PROJECT: ROBLOX_EXECUTOR_HYBRID_ULTIMATE v1.6 [REDUX]
-    Optimized for PC (Xeno/Solara/Wave)
-    Keybind: RightShift (and starts VISIBLE)
+    PROJECT: HYBRID_STABLE_v1.9
+    - Optimized for Xeno (PC)
+    - Keybind: RightShift (Starts VISIBLE)
+    - Fix: Removed failing hooks for better stability
 ]]
 
 local UserInputService = game:GetService("UserInputService")
-local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- Global Configuration
+-- 1. Configuration Settings
 local Config = {
     ToggleKey = Enum.KeyCode.RightShift,
-    BypassActive = true,
-    Aimbot = {
-        Enabled = false,
-        Smoothing = 0.4,
-        FOV = 120,
-        TargetPart = "Head",
-        TeamCheck = true
-    }
+    Aimbot = { Enabled = false, Smoothing = 0.4, FOV = 120, TeamCheck = true }
 }
 
 -- ==========================================
--- I. CORE ENGINE (The "Brain")
--- ==========================================
-local function InitiateHooks()
-    local gEnv = getrenv()
-    local success, OldFireServer = pcall(function() 
-        return hookfunction(gEnv.Instance.new("RemoteEvent").FireServer, function(Self, ...)
-            if Config.BypassActive and not checkcaller() then
-                local Name = Self.Name:lower()
-                if Name:find("check") or Name:find("kick") then return nil end
-            end
-            return OldFireServer(Self, ...)
-        end)
-    end)
-    if not success then warn("Bypass hook failed, continuing without it.") end
-end
-
--- ==========================================
--- II. COMBAT (RMB Aimbot)
+-- I. COMBAT LOGIC (The Aimbot)
 -- ==========================================
 local FOVCircle = Drawing.new("Circle")
-FOVCircle.Thickness = 1.5
-FOVCircle.Color = Color3.fromRGB(0, 255, 255)
-FOVCircle.Transparency = 0.7
+FOVCircle.Thickness, FOVCircle.Color, FOVCircle.Transparency = 1.5, Color3.fromRGB(0, 255, 255), 0.7
 FOVCircle.Visible = false
 
 local function GetClosestPlayer()
     local Target, ShortestDistance = nil, Config.Aimbot.FOV
     for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild(Config.Aimbot.TargetPart) then
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Head") then
             local IsEnemy = not Config.Aimbot.TeamCheck or (p.Team ~= LocalPlayer.Team or p.Neutral)
             if IsEnemy then
-                local Pos, OnScreen = Camera:WorldToViewportPoint(p.Character[Config.Aimbot.TargetPart].Position)
+                local Pos, OnScreen = Camera:WorldToViewportPoint(p.Character.Head.Position)
                 if OnScreen then
-                    local Distance = (Vector2.new(Pos.X, Pos.Y) - UserInputService:GetMouseLocation()).Magnitude
-                    if Distance < ShortestDistance then
-                        Target, ShortestDistance = p, Distance
-                    end
+                    local Mag = (Vector2.new(Pos.X, Pos.Y) - UserInputService:GetMouseLocation()).Magnitude
+                    if Mag < ShortestDistance then Target, ShortestDistance = p, Mag end
                 end
             end
         end
@@ -72,148 +44,73 @@ end
 RunService.RenderStepped:Connect(function()
     FOVCircle.Position = UserInputService:GetMouseLocation()
     FOVCircle.Radius = Config.Aimbot.FOV
-    
     if Config.Aimbot.Enabled and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
         local T = GetClosestPlayer()
-        if T and T.Character then
-            local AimCFrame = CFrame.new(Camera.CFrame.Position, T.Character[Config.Aimbot.TargetPart].Position)
-            Camera.CFrame = Camera.CFrame:Lerp(AimCFrame, Config.Aimbot.Smoothing)
+        if T then
+            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, T.Character.Head.Position), Config.Aimbot.Smoothing)
         end
     end
 end)
 
 -- ==========================================
--- III. UI SYSTEM (The Fix)
+-- II. THE UI (Forced Visibility Fix)
 -- ==========================================
-local UI = {}
-function UI:CreateWindow(title)
-    local ScreenGui = Instance.new("ScreenGui")
-    -- Xeno Fix: Try CoreGui, then PlayerGui
-    local success, _ = pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
-    if not success then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
-    
-    ScreenGui.Name = "Hybrid_" .. math.random(100,999)
-    ScreenGui.Enabled = true -- STARTS OPEN
-    ScreenGui.ResetOnSpawn = false
+local ScreenGui = Instance.new("ScreenGui")
+-- Safety Check for Parent
+pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
+if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
-    local Main = Instance.new("Frame", ScreenGui)
-    Main.Size = UDim2.new(0, 450, 0, 320)
-    Main.Position = UDim2.new(0.5, -225, 0.5, -160)
-    Main.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    Main.BorderSizePixel = 0
-    Main.Active = true -- Draggable fix below
+ScreenGui.Enabled = true -- Starts OPEN
+ScreenGui.Name = "Hybrid_Stable"
 
-    -- Manual Dragging for Xeno
-    local dragging, dragInput, dragStart, startPos
-    Main.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true; dragStart = input.Position; startPos = Main.Position
-            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
-        end
-    end)
-    Main.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end end)
-    RunService.RenderStepped:Connect(function()
-        if dragging and dragInput then
-            local delta = dragInput.Position - dragStart
-            Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
+local Main = Instance.new("Frame", ScreenGui)
+Main.Size = UDim2.new(0, 400, 0, 250)
+Main.Position = UDim2.new(0.5, -200, 0.5, -125)
+Main.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Main.BorderSizePixel = 0
+Main.Active = true
 
-    local Sidebar = Instance.new("Frame", Main)
-    Sidebar.Size = UDim2.new(0, 110, 1, 0)
-    Sidebar.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-    Sidebar.BorderSizePixel = 0
+-- Simple Title
+local Title = Instance.new("TextLabel", Main)
+Title.Size = UDim2.new(1, 0, 0, 30); Title.Text = "HYBRID STABLE v1.9 [RShift]"; Title.TextColor3 = Color3.fromRGB(255, 255, 255); Title.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 
-    local Container = Instance.new("Frame", Main)
-    Container.Size = UDim2.new(1, -120, 1, -10)
-    Container.Position = UDim2.new(0, 115, 0, 5)
-    Container.BackgroundTransparency = 1
+-- Button Container
+local List = Instance.new("ScrollingFrame", Main)
+List.Size = UDim2.new(1, -20, 1, -40); List.Position = UDim2.new(0, 10, 0, 35); List.BackgroundTransparency = 1; List.CanvasSize = UDim2.new(0, 0, 2, 0)
 
-    UserInputService.InputBegan:Connect(function(i, p)
-        if not p and i.KeyCode == Config.ToggleKey then ScreenGui.Enabled = not ScreenGui.Enabled end
-    end)
-
-    return {
-        AddTab = function(name)
-            local TabBtn = Instance.new("TextButton", Sidebar)
-            TabBtn.Size = UDim2.new(1, 0, 0, 35)
-            TabBtn.Text = name
-            TabBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-            TabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            TabBtn.BorderSizePixel = 0
-
-            local Page = Instance.new("ScrollingFrame", Container)
-            Page.Size = UDim2.new(1, 0, 1, 0)
-            Page.Visible = false
-            Page.BackgroundTransparency = 1
-            Page.ScrollBarThickness = 2
-
-            TabBtn.MouseButton1Click:Connect(function()
-                for _, v in pairs(Container:GetChildren()) do v.Visible = false end
-                Page.Visible = true
-            end)
-
-            return {
-                AddButton = function(t, c)
-                    local b = Instance.new("TextButton", Page)
-                    b.Size = UDim2.new(1, -5, 0, 30)
-                    b.Text = t
-                    b.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-                    b.TextColor3 = Color3.fromRGB(255, 255, 255)
-                    b.MouseButton1Click:Connect(c)
-                end,
-                AddToggle = function(t, c)
-                    local s = false
-                    local b = Instance.new("TextButton", Page)
-                    b.Size = UDim2.new(1, -5, 0, 30)
-                    b.Text = t .. ": OFF"
-                    b.TextColor3 = Color3.fromRGB(255, 100, 100)
-                    b.MouseButton1Click:Connect(function()
-                        s = not s; b.Text = t .. (s and ": ON" or ": OFF")
-                        b.TextColor3 = s and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(255, 100, 100)
-                        c(s)
-                    end)
-                end
-            }
-        end
-    }
+local function NewButton(txt, cb)
+    local b = Instance.new("TextButton", List)
+    b.Size = UDim2.new(1, 0, 0, 35); b.Text = txt; b.BackgroundColor3 = Color3.fromRGB(40, 40, 40); b.TextColor3 = Color3.fromRGB(255, 255, 255)
+    b.MouseButton1Click:Connect(cb)
 end
 
 -- ==========================================
--- IV. ASSEMBLY
+-- III. TOOLS & TOGGLES
 -- ==========================================
-InitiateHooks()
-local Win = UI:CreateWindow("HYBRID REDUX")
-local Combat = Win.AddTab("Combat")
-local Visuals = Win.AddTab("Visuals")
-local Teleport = Win.AddTab("Teleport")
-local Settings = Win.AddTab("Settings")
+NewButton("Toggle Aimbot", function() 
+    Config.Aimbot.Enabled = not Config.Aimbot.Enabled 
+    print("Aimbot: ", Config.Aimbot.Enabled)
+end)
 
-Combat.AddToggle("Aimbot (Hold RMB)", function(s) Config.Aimbot.Enabled = s end)
-Combat.AddToggle("Show FOV", function(s) FOVCircle.Visible = s end)
-Combat.AddToggle("Team Check", function(s) Config.Aimbot.TeamCheck = s end)
-
-Visuals.AddToggle("Player ESP", function(s)
+NewButton("Toggle ESP", function()
     for _, p in pairs(Players:GetPlayers()) do
         if p.Character then
             local h = p.Character:FindFirstChildOfClass("Highlight") or Instance.new("Highlight", p.Character)
-            h.Enabled, h.DepthMode = s, Enum.HighlightDepthMode.AlwaysOnTop
+            h.Enabled = not h.Enabled
+            h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
         end
     end
 end)
 
-Teleport.AddButton("Refresh TP List", function()
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            Teleport.AddButton("TP: " .. p.Name, function()
-                if p.Character then LocalPlayer.Character:PivotTo(p.Character:GetPivot()) end
-            end)
-        end
-    end
-end)
+NewButton("Toggle FOV Circle", function() FOVCircle.Visible = not FOVCircle.Visible end)
 
-Settings.AddButton("Infinite Yield", function()
+NewButton("Infinite Yield", function()
     loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
 end)
 
-print("[Hybrid] Redux Loaded. Use RightShift to Hide.")
+-- Toggle Menu Key
+UserInputService.InputBegan:Connect(function(i, p)
+    if not p and i.KeyCode == Config.ToggleKey then ScreenGui.Enabled = not ScreenGui.Enabled end
+end)
+
+warn("[Hybrid] Script Loaded. Menu is OPEN. Press RightShift to hide.")
