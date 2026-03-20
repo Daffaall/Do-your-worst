@@ -1,8 +1,11 @@
 --[[
-    PROJECT: ROBLOX_EXECUTOR_HYBRID_ULTIMATE v1.5
-    Keybind: Custom (Default RightShift)
-    Combat: RMB Hold Aimbot (Team Checked)
-    Visuals: X-Ray ESP
+    PROJECT: ROBLOX_EXECUTOR_HYBRID_ULTIMATE v1.6
+    Features: 
+    - Bypass: Silent FireServer Hooks
+    - Combat: RMB-Hold Aimbot + Team Check + FOV
+    - Visuals: GPU-Accelerated ESP (Highlights)
+    - Utility: Dynamic Player Teleport + Infinite Yield
+    - Settings: Live Keybind Remapping
 ]]
 
 local UserInputService = game:GetService("UserInputService")
@@ -31,10 +34,14 @@ local Config = {
 local function InitiateHooks()
     local gEnv = getrenv()
     local OldFireServer
+    
+    -- Using hookfunction to drop Anti-Cheat packets
     OldFireServer = hookfunction(gEnv.Instance.new("RemoteEvent").FireServer, function(Self, ...)
         if Config.BypassActive and not checkcaller() then
             local Name = Self.Name:lower()
-            if Name:find("check") or Name:find("kick") then return nil end
+            if Name:find("check") or Name:find("kick") or Name:find("detect") then 
+                return nil 
+            end
         end
         return OldFireServer(Self, ...)
     end)
@@ -44,19 +51,23 @@ end
 -- II. COMBAT LOGIC (Aimbot + Team Check)
 -- ==========================================
 local FOVCircle = Drawing.new("Circle")
-FOVCircle.Thickness, FOVCircle.Color, FOVCircle.Transparency = 1.5, Color3.fromRGB(0, 255, 255), 0.7
+FOVCircle.Thickness = 1.5
+FOVCircle.Color = Color3.fromRGB(0, 255, 255)
+FOVCircle.Transparency = 0.7
+FOVCircle.Filled = false
 
 local function GetClosestPlayer()
     local Target, ShortestDistance = nil, Config.Aimbot.FOV
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild(Config.Aimbot.TargetPart) then
-            -- TEAM CHECK LOGIC
+            -- Team Check Verification
             local IsEnemy = not Config.Aimbot.TeamCheck or (p.Team ~= LocalPlayer.Team or p.Neutral)
             
             if IsEnemy then
                 local Pos, OnScreen = Camera:WorldToViewportPoint(p.Character[Config.Aimbot.TargetPart].Position)
                 if OnScreen then
-                    local Distance = (Vector2.new(Pos.X, Pos.Y) - UserInputService:GetMouseLocation()).Magnitude
+                    local MousePos = UserInputService:GetMouseLocation()
+                    local Distance = (Vector2.new(Pos.X, Pos.Y) - MousePos).Magnitude
                     if Distance < ShortestDistance then
                         Target, ShortestDistance = p, Distance
                     end
@@ -71,66 +82,137 @@ RunService.RenderStepped:Connect(function()
     FOVCircle.Position = UserInputService:GetMouseLocation()
     FOVCircle.Radius = Config.Aimbot.FOV
     
+    -- Aim Logic: Enabled AND Right Mouse Button (MouseButton2) is held
     if Config.Aimbot.Enabled and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
         local T = GetClosestPlayer()
         if T and T.Character then
-            local AimCFrame = CFrame.new(Camera.CFrame.Position, T.Character[Config.Aimbot.TargetPart].Position)
+            local TargetPos = T.Character[Config.Aimbot.TargetPart].Position
+            local AimCFrame = CFrame.new(Camera.CFrame.Position, TargetPos)
             Camera.CFrame = Camera.CFrame:Lerp(AimCFrame, Config.Aimbot.Smoothing)
         end
     end
 end)
 
 -- ==========================================
--- III. UI LIBRARY & TABS
+-- III. MODULAR UI SYSTEM
 -- ==========================================
-local UI = {} -- [Referencing the Modular UI logic built in previous steps]
+local UI = {}
 function UI:CreateWindow(title)
     local ScreenGui = Instance.new("ScreenGui", game:GetService("CoreGui"))
     ScreenGui.Name = HttpService:GenerateGUID(false)
-    local Main = Instance.new("Frame", ScreenGui); Main.Size = UDim2.new(0, 500, 0, 350); Main.Position = UDim2.new(0.5, -250, 0.5, -175); Main.BackgroundColor3 = Color3.fromRGB(20, 20, 20); Main.Active = true; Main.Draggable = true
-    local Sidebar = Instance.new("Frame", Main); Sidebar.Size = UDim2.new(0, 120, 1, 0); Sidebar.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-    local Container = Instance.new("Frame", Main); Container.Size = UDim2.new(1, -130, 1, -10); Container.Position = UDim2.new(0, 125, 0, 5); Container.BackgroundTransparency = 1
+    ScreenGui.ResetOnSpawn = false
 
+    local Main = Instance.new("Frame", ScreenGui)
+    Main.Size = UDim2.new(0, 500, 0, 350)
+    Main.Position = UDim2.new(0.5, -250, 0.5, -175)
+    Main.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    Main.BorderSizePixel = 0
+    Main.Active = true
+    Main.Draggable = true
+
+    local Sidebar = Instance.new("Frame", Main)
+    Sidebar.Size = UDim2.new(0, 120, 1, 0)
+    Sidebar.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+    Sidebar.BorderSizePixel = 0
+
+    local Container = Instance.new("Frame", Main)
+    Container.Size = UDim2.new(1, -130, 1, -10)
+    Container.Position = UDim2.new(0, 125, 0, 5)
+    Container.BackgroundTransparency = 1
+
+    -- Toggle Menu Visibility
     UserInputService.InputBegan:Connect(function(i, p)
-        if not p and i.KeyCode == Config.ToggleKey then ScreenGui.Enabled = not ScreenGui.Enabled end
+        if not p and i.KeyCode == Config.ToggleKey then 
+            ScreenGui.Enabled = not ScreenGui.Enabled 
+        end
     end)
 
-    return {
-        AddTab = function(name)
-            local TabBtn = Instance.new("TextButton", Sidebar); TabBtn.Size = UDim2.new(1, 0, 0, 35); TabBtn.Text = name; TabBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25); TabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            local Page = Instance.new("ScrollingFrame", Container); Page.Size = UDim2.new(1, 0, 1, 0); Page.Visible = false; Page.BackgroundTransparency = 1; Page.ScrollBarThickness = 2
-            TabBtn.MouseButton1Click:Connect(function() for _, v in pairs(Container:GetChildren()) do v.Visible = false end; Page.Visible = true end)
-            return {
-                AddButton = function(t, c) local b = Instance.new("TextButton", Page); b.Size = UDim2.new(1, -10, 0, 30); b.Text = t; b.BackgroundColor3 = Color3.fromRGB(40, 40, 40); b.TextColor3 = Color3.fromRGB(255, 255, 255); b.MouseButton1Click:Connect(c) end,
-                AddToggle = function(t, c) 
-                    local s = false; local b = Instance.new("TextButton", Page); b.Size = UDim2.new(1, -10, 0, 30); b.Text = t .. ": OFF"; b.TextColor3 = Color3.fromRGB(255, 100, 100)
-                    b.MouseButton1Click:Connect(function() s = not s; b.Text = t .. (s and ": ON" or ": OFF"); b.TextColor3 = s and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(255, 100, 100); c(s) end)
-                end,
-                AddKeybind = function(t, c)
-                    local b = Instance.new("TextButton", Page); b.Size = UDim2.new(1, -10, 0, 30); b.Text = t .. ": " .. Config.ToggleKey.Name; b.BackgroundColor3 = Color3.fromRGB(35, 35, 60); b.TextColor3 = Color3.fromRGB(255, 255, 255)
-                    b.MouseButton1Click:Connect(function() b.Text = "..."; local l; l = UserInputService.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.Keyboard then Config.ToggleKey = i.KeyCode; b.Text = t .. ": " .. i.KeyCode.Name; l:Disconnect(); c(i.KeyCode) end end) end)
-                end
-            }
+    local Tabs = {}
+    function Tabs:AddTab(name)
+        local TabBtn = Instance.new("TextButton", Sidebar)
+        TabBtn.Size = UDim2.new(1, 0, 0, 35)
+        TabBtn.Text = name
+        TabBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+        TabBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        TabBtn.BorderSizePixel = 0
+        TabBtn.Font = Enum.Font.Gotham
+
+        local Page = Instance.new("ScrollingFrame", Container)
+        Page.Size = UDim2.new(1, 0, 1, 0)
+        Page.Visible = false
+        Page.BackgroundTransparency = 1
+        Page.ScrollBarThickness = 2
+
+        TabBtn.MouseButton1Click:Connect(function()
+            for _, v in pairs(Container:GetChildren()) do v.Visible = false end
+            Page.Visible = true
+        end)
+
+        local Elements = {}
+        function Elements:AddButton(t, c)
+            local b = Instance.new("TextButton", Page)
+            b.Size = UDim2.new(1, -10, 0, 30)
+            b.Text = t
+            b.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+            b.TextColor3 = Color3.fromRGB(255, 255, 255)
+            b.MouseButton1Click:Connect(c)
         end
-    }
+        function Elements:AddToggle(t, c)
+            local s = false
+            local b = Instance.new("TextButton", Page)
+            b.Size = UDim2.new(1, -10, 0, 30)
+            b.Text = t .. ": OFF"
+            b.TextColor3 = Color3.fromRGB(255, 100, 100)
+            b.MouseButton1Click:Connect(function()
+                s = not s
+                b.Text = t .. (s and ": ON" or ": OFF")
+                b.TextColor3 = s and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(255, 100, 100)
+                c(s)
+            end)
+        end
+        function Elements:AddKeybind(t, c)
+            local b = Instance.new("TextButton", Page)
+            b.Size = UDim2.new(1, -10, 0, 30)
+            b.Text = t .. ": " .. Config.ToggleKey.Name
+            b.BackgroundColor3 = Color3.fromRGB(35, 35, 60)
+            b.TextColor3 = Color3.fromRGB(255, 255, 255)
+            b.MouseButton1Click:Connect(function()
+                b.Text = "..."
+                local l; l = UserInputService.InputBegan:Connect(function(i)
+                    if i.UserInputType == Enum.UserInputType.Keyboard then
+                        Config.ToggleKey = i.KeyCode
+                        b.Text = t .. ": " .. i.KeyCode.Name
+                        l:Disconnect()
+                        c(i.KeyCode)
+                    end
+                end)
+            end)
+        end
+        return Elements
+    end
+    return Tabs
 end
 
 -- ==========================================
--- IV. FINAL DEPLOYMENT
+-- IV. FINAL ASSEMBLY
 -- ==========================================
 InitiateHooks()
-local Win = UI:CreateWindow("HYBRID ULTIMATE")
-local CombatTab = Win.AddTab("Combat")
-local VisualsTab = Win.AddTab("Visuals")
-local SettingsTab = Win.AddTab("Settings")
+local Win = UI:CreateWindow("HYBRID ULTIMATE v1.6")
+local Combat = Win:AddTab("Combat")
+local Visuals = Win:AddTab("Visuals")
+local Teleport = Win:AddTab("Teleport")
+local Settings = Win:AddTab("Settings")
 
--- COMBAT
-CombatTab.AddToggle("Enable Aimbot (RMB Hold)", function(s) Config.Aimbot.Enabled = s end)
-CombatTab.AddToggle("Team Check", function(s) Config.Aimbot.TeamCheck = s end)
-CombatTab.AddToggle("Show FOV", function(s) FOVCircle.Visible = s end)
+-- COMBAT TAB
+Combat:AddToggle("Master Aimbot", function(s) Config.Aimbot.Enabled = s end)
+Combat:AddToggle("Team Check", function(s) Config.Aimbot.TeamCheck = s end)
+Combat:AddToggle("Show FOV Circle", function(s) FOVCircle.Visible = s end)
+Combat:AddButton("Target: Head/Body", function()
+    Config.Aimbot.TargetPart = (Config.Aimbot.TargetPart == "Head") and "HumanoidRootPart" or "Head"
+end)
 
--- VISUALS
-VisualsTab.AddToggle("Player ESP", function(state)
+-- VISUALS TAB
+Visuals:AddToggle("X-Ray ESP", function(state)
     for _, p in pairs(Players:GetPlayers()) do
         if p.Character then
             local h = p.Character:FindFirstChildOfClass("Highlight") or Instance.new("Highlight", p.Character)
@@ -139,8 +221,23 @@ VisualsTab.AddToggle("Player ESP", function(state)
     end
 end)
 
--- SETTINGS
-SettingsTab.AddKeybind("UI Toggle", function() end)
-SettingsTab.AddButton("Load Infinite Yield", function() loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))() end)
+-- TELEPORT TAB
+local function RefreshTP()
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            Teleport:AddButton("TP to: " .. p.DisplayName, function()
+                if p.Character then LocalPlayer.Character:PivotTo(p.Character:GetPivot()) end
+            end)
+        end
+    end
+end
+Teleport:AddButton("🔄 Refresh Player List", RefreshTP)
+RefreshTP()
 
-print("[Hybrid] System v1.5 Loaded. Good luck.")
+-- SETTINGS TAB
+Settings:AddKeybind("Menu Keybind", function() end)
+Settings:AddButton("Load Infinite Yield", function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
+end)
+
+print("[Hybrid] System v1.6 fully loaded. Press RightShift to start.")
